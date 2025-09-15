@@ -233,6 +233,10 @@ gradle-app.setting
 # Eclipse Core
 # JDT-specific (Eclipse Java Development Tools)
 
+# application
+application.yml
+application.properties
+
 ### Gradle Patch ###
 # Java heap dump
 *.hprof
