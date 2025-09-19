@@ -234,9 +234,17 @@ gradle-app.setting
 # JDT-specific (Eclipse Java Development Tools)
 
 # application
-*.yml
 application.yml
 application.properties
+
+# env
+**/.env
+.env.*
+
+# logs & temps
+/*.pid
+/logs/
+/tmp/
 
 ### Gradle Patch ###
 # Java heap dump
