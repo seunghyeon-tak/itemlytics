@@ -234,6 +234,7 @@ gradle-app.setting
 # JDT-specific (Eclipse Java Development Tools)
 
 # application
+*.yml
 application.yml
 application.properties
 
