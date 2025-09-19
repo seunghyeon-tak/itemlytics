@@ -1,0 +1,5 @@
+services:
+  app:
+    container_name: item-app-dev
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
