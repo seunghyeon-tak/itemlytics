@@ -3,3 +3,7 @@ services:
     container_name: item-app-prod
     environment:
       SPRING_PROFILES_ACTIVE: prod
+    deploy:
+      resources:
+        limits:
+          memory: 1024M
