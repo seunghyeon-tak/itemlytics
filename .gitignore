@@ -235,6 +235,9 @@ gradle-app.setting
 
 # application
 application.yml
+application-dev.yml
+application-local.yml
+application-prod.yml
 application.properties
 
 # env
