@@ -76,15 +76,33 @@ jobs:
             set -euo pipefail
             
             REGION="ap-northeast-2"
-            REGISTRY="${{ steps.login-ecr.outputs.registry }}"   # 예: 3830...amazonaws.com
+            REGISTRY="${{ steps.login-ecr.outputs.registry }}"
             REPO="itemlytics-server"
             TAG="latest"
             IMAGE="${REGISTRY}/${REPO}:${TAG}"
             
+            if ! command -v aws >/dev/null 2>&1; then
+              echo "[INFO] Installing AWS CLI v2..."
+              sudo apt-get update -y
+              sudo apt-get install -y curl unzip
+              curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+              unzip -q awscliv2.zip
+              sudo ./aws/install
+              aws --version || (echo "[ERROR] AWS CLI install failed"; exit 1)
+            fi
+            
+            if ! command -v docker >/dev/null 2>&1; then
+              echo "[INFO] Installing Docker..."
+              sudo apt-get update -y
+              sudo apt-get install -y docker.io
+              sudo systemctl enable --now docker
+            fi
+            
             DOCKER="docker"
-          
-            ${DOCKER} --version || (echo "docker not installed on EC2"; exit 1)
-            aws --version || (echo "aws cli not installed on EC2"; exit 1)
+            if ! ${DOCKER} info >/dev/null 2>&1; then
+              DOCKER="sudo docker"
+            fi
+            ${DOCKER} --version
             
             if ${DOCKER} login --help 2>/dev/null | grep -q -- '--password-stdin'; then
               aws ecr get-login-password --region "${REGION}" \
@@ -92,7 +110,8 @@ jobs:
             else
               eval "$(aws ecr get-login --region "${REGION}" --no-include-email)"
             fi
-            
+
+            echo "[INFO] Pulling image: ${IMAGE}"
             ${DOCKER} pull "${IMAGE}"
             
             ${DOCKER} stop itemlytics-server || true
@@ -106,3 +125,4 @@ jobs:
               "${IMAGE}"
             
             ${DOCKER} ps --filter "name=itemlytics-server"
+            echo "[INFO] Deploy finished."
