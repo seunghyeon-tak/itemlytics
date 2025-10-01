@@ -66,21 +66,43 @@ jobs:
         run: docker push ${{ steps.login-ecr.outputs.registry }}/itemlytics-server:latest
 
       - name: SSH로 EC2에 접속하기
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USERNAME }}
+          username: ubuntu
           key: ${{ secrets.EC2_PRIVATE_KEY }}
           script_stop: true
           script: |
             set -euo pipefail
-            aws ecr get-login-password --region ap-northeast-2 \
-              | docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}
-            docker pull ${{ steps.login-ecr.outputs.registry }}/itemlytics-server:latest
-            docker stop itemlytics-server || true
-            docker rm itemlytics-server || true
-            docker run -d \
+            
+            REGION="ap-northeast-2"
+            REGISTRY="${{ steps.login-ecr.outputs.registry }}"   # 예: 3830...amazonaws.com
+            REPO="itemlytics-server"
+            TAG="latest"
+            IMAGE="${REGISTRY}/${REPO}:${TAG}"
+            
+            DOCKER="docker"
+          
+            ${DOCKER} --version || (echo "docker not installed on EC2"; exit 1)
+            aws --version || (echo "aws cli not installed on EC2"; exit 1)
+            
+            if ${DOCKER} login --help 2>/dev/null | grep -q -- '--password-stdin'; then
+              aws ecr get-login-password --region "${REGION}" \
+                | ${DOCKER} login --username AWS --password-stdin "${REGISTRY}"
+            else
+              eval "$(aws ecr get-login --region "${REGION}" --no-include-email)"
+            fi
+            
+            ${DOCKER} pull "${IMAGE}"
+            
+            ${DOCKER} stop itemlytics-server || true
+            ${DOCKER} rm   itemlytics-server || true
+            
+            ${DOCKER} run -d \
               --name itemlytics-server \
+              --restart unless-stopped \
               -p 8080:8080 \
               -e SPRING_PROFILES_ACTIVE=prod \
-              ${{ steps.login-ecr.outputs.registry }}/itemlytics-server:latest
+              "${IMAGE}"
+            
+            ${DOCKER} ps --filter "name=itemlytics-server"
