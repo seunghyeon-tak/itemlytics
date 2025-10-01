@@ -9,41 +9,20 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      # 현재 리포지토리 소스 코드를 러너(우분투 VM)로 체크아웃
-      - name: Github Repository에 올린 파일들을 불러오기
+      - name: Github Repository 파일 불러오기
         uses: actions/checkout@v4
 
-      # Temurin(Adoptium) 배포판 기준으로 Java17을 설치해야함
-      # Gradle/jar 빌드에 필요한 JDK 환경을 세팅
       - name: JDK 17버전 설치
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
-          cache: gradle
 
-      # Github Secrets에 저장해둔 문자열(여기서는 APPLICATION_PROPERTIES)을
-      # 프로젝트의 src/main/resources/application.yml로 기록한다.
-      # 민감정보를 코드에 커밋하지 않고, 런타임에 주입하기 위함이다.
-      - name: application.yml 생성
-        run: |
-          cat > ./src/main/resources/application.yml << 'EOF'
-          ${{ secrets.APPLICATION_PROPERTIES }}
-          EOF
+      - name: application.yml 파일 만들기
+        run: echo "${{ secrets.APPLICATION_PROPERTIES }}" > ./src/main/resources/application.yml
 
-      # 최초 실행 환경에서 ./gradlew: Permission denied 발생할 수 있음
-      - name: Gradle 실행권한 부여
-        run: chmod +x ./gradlew
-
-      # Gradle 래퍼로 테스트까지 포함한 빌드를 실행
-      # 결과물 JAR는 보통 ./build/libs/ 아래에 생성됨
       - name: 테스트 및 빌드하기
         run: ./gradlew clean build
-
-      # 생성된 JAR 중 이름에 SNAPSHOT이 들어간 파일을 project.jar로 변경
-      # 이후 서버로 전송할 단일 파일명을 고정하기 위한 단계
-      - name: JAR 이름 고정
-        run: mv "$(ls build/libs/*.jar | grep -v plain | head -n1)" project.jar
 
       - name: AWS Resource에 접근할 수 있게 AWS credentials 설정
         uses: aws-actions/configure-aws-credentials@v4
@@ -52,7 +31,7 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
-      - name: ECR에 로그인
+      - name: ECR에 로그인하기
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
@@ -62,67 +41,18 @@ jobs:
       - name: Docker 이미지에 Tag 붙이기
         run: docker tag itemlytics-server ${{ steps.login-ecr.outputs.registry }}/itemlytics-server:latest
 
-      - name: ECR에 Docker 이미지 Push 하기
+      - name: ECR에 Docker 이미지 Push하기
         run: docker push ${{ steps.login-ecr.outputs.registry }}/itemlytics-server:latest
 
       - name: SSH로 EC2에 접속하기
-        uses: appleboy/ssh-action@v1.2.0
+        uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.EC2_HOST }}
-          username: ubuntu
+          username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_PRIVATE_KEY }}
           script_stop: true
           script: |
-            set -euo pipefail
-            
-            REGION="ap-northeast-2"
-            REGISTRY="${{ steps.login-ecr.outputs.registry }}"
-            REPO="itemlytics-server"
-            TAG="latest"
-            IMAGE="${REGISTRY}/${REPO}:${TAG}"
-            
-            if ! command -v aws >/dev/null 2>&1; then
-              echo "[INFO] Installing AWS CLI v2..."
-              sudo apt-get update -y
-              sudo apt-get install -y curl unzip
-              curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-              unzip -q awscliv2.zip
-              sudo ./aws/install
-              aws --version || (echo "[ERROR] AWS CLI install failed"; exit 1)
-            fi
-            
-            if ! command -v docker >/dev/null 2>&1; then
-              echo "[INFO] Installing Docker..."
-              sudo apt-get update -y
-              sudo apt-get install -y docker.io
-              sudo systemctl enable --now docker
-            fi
-            
-            DOCKER="docker"
-            if ! ${DOCKER} info >/dev/null 2>&1; then
-              DOCKER="sudo docker"
-            fi
-            ${DOCKER} --version
-            
-            if ${DOCKER} login --help 2>/dev/null | grep -q -- '--password-stdin'; then
-              aws ecr get-login-password --region "${REGION}" \
-                | ${DOCKER} login --username AWS --password-stdin "${REGISTRY}"
-            else
-              eval "$(aws ecr get-login --region "${REGION}" --no-include-email)"
-            fi
-
-            echo "[INFO] Pulling image: ${IMAGE}"
-            ${DOCKER} pull "${IMAGE}"
-            
-            ${DOCKER} stop itemlytics-server || true
-            ${DOCKER} rm   itemlytics-server || true
-            
-            ${DOCKER} run -d \
-              --name itemlytics-server \
-              --restart unless-stopped \
-              -p 8080:8080 \
-              -e SPRING_PROFILES_ACTIVE=prod \
-              "${IMAGE}"
-            
-            ${DOCKER} ps --filter "name=itemlytics-server"
-            echo "[INFO] Deploy finished."
+            docker stop itemlytics-server || true
+            docker rm itemlytics-server || true
+            docker pull ${{ steps.login-ecr.outputs.registry }}/itemlytics-server:latest
+            docker run -d --name itemlytics-server -p 8080:8080 ${{ steps.login-ecr.outputs.registry }}/itemlytics-server:latest
